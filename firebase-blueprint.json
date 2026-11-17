@@ -1,0 +1,124 @@
+{
+  "entities": {
+    "UserPublicProfile": {
+      "title": "UserPublicProfile",
+      "description": "Public non-PII profile information for an authenticated CaterEase user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "photoUrl": { "type": "string", "maxLength": 512 },
+        "role": { "type": "string", "enum": ["CUSTOMER", "STAFF", "ADMIN"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "role", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Strictly owner-isolated PII and preferences for a CaterEase user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 160 },
+        "city": { "type": "string", "maxLength": 80 },
+        "dietaryPreferences": { "type": "string", "maxLength": 240 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "ChatSession": {
+      "title": "ChatSession",
+      "description": "Multi-turn CaterEase Gemini AI conversation session owned by a user.",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "modelTier": { "type": "string", "enum": ["fast", "general", "deep"] },
+        "searchEnabled": { "type": "boolean" },
+        "systemInstruction": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["sessionId", "ownerUid", "title", "modelTier", "searchEnabled", "createdAt", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Individual message inside a user's multi-turn AI chat session.",
+      "type": "object",
+      "properties": {
+        "messageId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "sessionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "role": { "type": "string", "enum": ["user", "model"] },
+        "text": { "type": "string", "minLength": 1, "maxLength": 8000 },
+        "modelUsed": { "type": "string", "maxLength": 64 },
+        "groundingUrls": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["messageId", "sessionId", "ownerUid", "role", "text", "createdAt"]
+    },
+    "StudioPreset": {
+      "title": "StudioPreset",
+      "description": "Saved 3D Banquet Studio lighting, finish, and layout preset for a user.",
+      "type": "object",
+      "properties": {
+        "presetId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "layoutPreset": { "type": "string", "enum": ["banquet", "buffet", "showroom"] },
+        "metalFinish": { "type": "string", "enum": ["gold", "copper", "silver"] },
+        "lightingPreset": { "type": "string", "enum": ["gala", "daylight", "sunset"] },
+        "explodeAmount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["presetId", "ownerUid", "name", "layoutPreset", "metalFinish", "lightingPreset", "explodeAmount", "createdAt", "updatedAt"]
+    },
+    "GameScore": {
+      "title": "GameScore",
+      "description": "Persisted 3D Banquet Rush score submitted by an authenticated user.",
+      "type": "object",
+      "properties": {
+        "scoreId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "playerName": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "score": { "type": "integer" },
+        "waveReached": { "type": "integer" },
+        "ordersDelivered": { "type": "integer" },
+        "maxCombo": { "type": "integer" },
+        "visibility": { "type": "string", "enum": ["leaderboard"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["scoreId", "ownerUid", "playerName", "score", "waveReached", "ordersDelivered", "maxCombo", "visibility", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublicProfile" },
+      "description": "Non-PII user display profile (owner or admin read/write only)."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated PII subcollection (strict owner or admin only)."
+    },
+    "/users/{userId}/chatSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/ChatSession" },
+      "description": "User's multi-turn CaterEase AI chat sessions."
+    },
+    "/users/{userId}/chatSessions/{sessionId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Messages inside an owned chat session."
+    },
+    "/users/{userId}/studioPresets/{presetId}": {
+      "schema": { "$ref": "#/entities/StudioPreset" },
+      "description": "Saved 3D Banquet Studio scene configurations."
+    },
+    "/gameScores/{scoreId}": {
+      "schema": { "$ref": "#/entities/GameScore" },
+      "description": "Verified 3D Banquet Rush leaderboard entries."
+    }
+  }
+}

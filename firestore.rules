@@ -1,0 +1,278 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: default deny everything
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Core Primitives & Identity Helpers
+    // -------------------------------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'koyyadileep7@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity Validation Blueprints
+    // -------------------------------------------------------------------------
+    function isValidUserPublicProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'photoUrl', 'role', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() <= 512))
+        && data.role is string && data.role in ['CUSTOMER', 'STAFF', 'ADMIN']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'city', 'dietaryPreferences', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == userId && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && (!('city' in data) || (data.city is string && data.city.size() <= 80))
+        && (!('dietaryPreferences' in data) || (data.dietaryPreferences is string && data.dietaryPreferences.size() <= 240))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChatSession(data, userId, sessionId) {
+      return data.keys().hasAll(['sessionId', 'ownerUid', 'title', 'modelTier', 'searchEnabled', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['sessionId', 'ownerUid', 'title', 'modelTier', 'searchEnabled', 'systemInstruction', 'createdAt', 'updatedAt'])
+        && data.sessionId is string && data.sessionId == sessionId && isValidId(data.sessionId)
+        && data.ownerUid is string && data.ownerUid == userId && isValidId(data.ownerUid)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 120
+        && data.modelTier is string && data.modelTier in ['fast', 'general', 'deep']
+        && data.searchEnabled is bool
+        && (!('systemInstruction' in data) || (data.systemInstruction is string && data.systemInstruction.size() <= 600))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidChatMessage(data, userId, sessionId, messageId) {
+      return data.keys().hasAll(['messageId', 'sessionId', 'ownerUid', 'role', 'text', 'createdAt'])
+        && data.keys().hasOnly(['messageId', 'sessionId', 'ownerUid', 'role', 'text', 'modelUsed', 'groundingUrls', 'createdAt'])
+        && data.messageId is string && data.messageId == messageId && isValidId(data.messageId)
+        && data.sessionId is string && data.sessionId == sessionId && isValidId(data.sessionId)
+        && data.ownerUid is string && data.ownerUid == userId && isValidId(data.ownerUid)
+        && data.role is string && data.role in ['user', 'model']
+        && data.text is string && data.text.size() >= 1 && data.text.size() <= 8000
+        && (!('modelUsed' in data) || (data.modelUsed is string && data.modelUsed.size() <= 64))
+        && (!('groundingUrls' in data) || (
+          data.groundingUrls is list &&
+          data.groundingUrls.size() <= 10 &&
+          (data.groundingUrls.size() == 0 || data.groundingUrls[0] is string)
+        ))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidStudioPreset(data, userId, presetId) {
+      return data.keys().hasAll(['presetId', 'ownerUid', 'name', 'layoutPreset', 'metalFinish', 'lightingPreset', 'explodeAmount', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['presetId', 'ownerUid', 'name', 'layoutPreset', 'metalFinish', 'lightingPreset', 'explodeAmount', 'createdAt', 'updatedAt'])
+        && data.presetId is string && data.presetId == presetId && isValidId(data.presetId)
+        && data.ownerUid is string && data.ownerUid == userId && isValidId(data.ownerUid)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 80
+        && data.layoutPreset is string && data.layoutPreset in ['banquet', 'buffet', 'showroom']
+        && data.metalFinish is string && data.metalFinish in ['gold', 'copper', 'silver']
+        && data.lightingPreset is string && data.lightingPreset in ['gala', 'daylight', 'sunset']
+        && data.explodeAmount is number && data.explodeAmount >= 0 && data.explodeAmount <= 1
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGameScore(data, scoreId) {
+      return data.keys().hasAll(['scoreId', 'ownerUid', 'playerName', 'score', 'waveReached', 'ordersDelivered', 'maxCombo', 'visibility', 'createdAt'])
+        && data.keys().hasOnly(['scoreId', 'ownerUid', 'playerName', 'score', 'waveReached', 'ordersDelivered', 'maxCombo', 'visibility', 'createdAt'])
+        && data.scoreId is string && data.scoreId == scoreId && isValidId(data.scoreId)
+        && data.ownerUid is string && data.ownerUid == request.auth.uid && isValidId(data.ownerUid)
+        && data.playerName is string && data.playerName.size() >= 1 && data.playerName.size() <= 60
+        && data.score is int && data.score >= 0 && data.score <= 1000000
+        && data.waveReached is int && data.waveReached >= 1 && data.waveReached <= 100
+        && data.ordersDelivered is int && data.ordersDelivered >= 0 && data.ordersDelivered <= 10000
+        && data.maxCombo is int && data.maxCombo >= 0 && data.maxCombo <= 10000
+        && data.visibility is string && data.visibility == 'leaderboard'
+        && data.createdAt is timestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // Collection Rules
+    // -------------------------------------------------------------------------
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isValidId(userId)
+        && isValidUserPublicProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (isOwner(userId) && incoming().role == 'CUSTOMER') ||
+          isAdmin()
+        );
+
+      allow update: if isValidId(userId)
+        && isValidUserPublicProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isOwner(userId)
+            && incoming().role == existing().role
+            && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoUrl', 'updatedAt'])) ||
+          (isAdmin()
+            && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoUrl', 'role', 'updatedAt']))
+        );
+
+      allow delete: if isValidId(userId) && isAdmin();
+
+      // Isolated PII Subcollection
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow list: if isValidId(userId) && (resource.data.uid == request.auth.uid || isAdmin());
+
+        allow create: if isValidId(userId) && isValidId(docId)
+          && isValidUserPrivateInfo(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && (isOwner(userId) || isAdmin());
+
+        allow update: if isValidId(userId) && isValidId(docId)
+          && isValidUserPrivateInfo(incoming(), userId)
+          && incoming().uid == existing().uid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'city', 'dietaryPreferences', 'updatedAt'])) ||
+            isAdmin()
+          );
+
+        allow delete: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+      }
+
+      // Multi-Turn Gemini AI Chat Sessions
+      match /chatSessions/{sessionId} {
+        allow get: if isValidId(userId) && isValidId(sessionId) && (isOwner(userId) || isAdmin());
+        allow list: if isValidId(userId) && isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+
+        allow create: if isValidId(userId) && isValidId(sessionId)
+          && isOwner(userId)
+          && isValidChatSession(incoming(), userId, sessionId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+
+        allow update: if isValidId(userId) && isValidId(sessionId)
+          && isValidChatSession(incoming(), userId, sessionId)
+          && incoming().sessionId == existing().sessionId
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'modelTier', 'searchEnabled', 'systemInstruction', 'updatedAt'])) ||
+            isAdmin()
+          );
+
+        allow delete: if isValidId(userId) && isValidId(sessionId) && (isOwner(userId) || isAdmin());
+
+        // Messages inside a ChatSession (Master Gate verifies parent session)
+        match /messages/{messageId} {
+          allow get: if isValidId(userId) && isValidId(sessionId) && isValidId(messageId)
+            && (isOwner(userId) || isAdmin())
+            && get(/databases/$(database)/documents/users/$(userId)/chatSessions/$(sessionId)).data.ownerUid == userId;
+
+          allow list: if isValidId(userId) && isValidId(sessionId) && isVerifiedUser()
+            && (resource.data.ownerUid == request.auth.uid || isAdmin());
+
+          allow create: if isValidId(userId) && isValidId(sessionId) && isValidId(messageId)
+            && isOwner(userId)
+            && isValidChatMessage(incoming(), userId, sessionId, messageId)
+            && incoming().createdAt == request.time
+            && exists(/databases/$(database)/documents/users/$(userId)/chatSessions/$(sessionId))
+            && get(/databases/$(database)/documents/users/$(userId)/chatSessions/$(sessionId)).data.ownerUid == userId;
+
+          allow update: if false; // Messages are immutable audit log entries
+          allow delete: if isValidId(userId) && isValidId(sessionId) && isValidId(messageId)
+            && (isOwner(userId) || isAdmin());
+        }
+      }
+
+      // Saved 3D Banquet Studio Presets
+      match /studioPresets/{presetId} {
+        allow get: if isValidId(userId) && isValidId(presetId) && (isOwner(userId) || isAdmin());
+        allow list: if isValidId(userId) && isVerifiedUser() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+
+        allow create: if isValidId(userId) && isValidId(presetId)
+          && isOwner(userId)
+          && isValidStudioPreset(incoming(), userId, presetId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+
+        allow update: if isValidId(userId) && isValidId(presetId)
+          && isValidStudioPreset(incoming(), userId, presetId)
+          && incoming().presetId == existing().presetId
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            (isOwner(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'layoutPreset', 'metalFinish', 'lightingPreset', 'explodeAmount', 'updatedAt'])) ||
+            isAdmin()
+          );
+
+        allow delete: if isValidId(userId) && isValidId(presetId) && (isOwner(userId) || isAdmin());
+      }
+    }
+
+    // Verified Banquet Rush 3D Game Leaderboard
+    match /gameScores/{scoreId} {
+      allow get: if isValidId(scoreId) && resource.data.visibility == 'leaderboard';
+      allow list: if resource.data.visibility == 'leaderboard';
+
+      allow create: if isValidId(scoreId)
+        && isVerifiedUser()
+        && isValidGameScore(incoming(), scoreId)
+        && incoming().createdAt == request.time;
+
+      allow update: if false; // Scores are immutable once recorded
+
+      allow delete: if isValidId(scoreId) && isVerifiedUser()
+        && (resource.data.ownerUid == request.auth.uid || isAdmin());
+    }
+
+    // Optional server-managed admins marker docs
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isAdmin() || (isVerifiedUser() && request.auth.uid == adminId));
+      allow list: if isAdmin();
+      allow write: if false;
+    }
+  }
+}

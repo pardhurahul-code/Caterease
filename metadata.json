@@ -1,0 +1,8 @@
+{
+  "name": "CaterEase",
+  "description": "Smart Catering. Seamless Celebrations. Full-stack AI-powered catering service management platform with PostgreSQL, Gemini AI planning suite, booking workflows, inventory control, and invoicing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
